@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "mode": "mock",
+  "realEnabled": false,
+  "presetFile": "presets/daily.json",
+  "maaDir": "C:\\Applications\\MAA",
+  "emulator": {
+    "manager": "C:\\Applications\\MuMu\\nx_main\\MuMuManager.exe",
+    "index": 0,
+    "address": "127.0.0.1:16384",
+    "adb": "C:\\Applications\\MuMu\\shell\\adb.exe",
+    "headlessExecutable": "C:\\Program Files\\MuMuVMMVbox\\Hypervisor\\MuMuVMMHeadless.exe"
+  },
+  "connectionTimeoutSeconds": 120,
+  "stopTimeoutSeconds": 30,
+  "mock": {
+    "scenario": "success",
+    "stepSeconds": 0.15
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "aurabot-maa-controller",
+  "version": "0.1.7",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "description": "Aurabot API v1 MAA controller; real execution disabled by default",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test test/auth.test.mjs test/preset.test.mjs test/controller.test.mjs test/adapter.test.mjs test/deploy.test.mjs",
+    "check": "node --check index.js",
+    "test:python": ".venv\\Scripts\\python.exe -m unittest discover -s test -p test_*.py",
+    "package": "node scripts/package.mjs"
+  }
+}
