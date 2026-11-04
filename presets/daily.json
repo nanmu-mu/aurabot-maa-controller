@@ -1,0 +1,136 @@
+{
+  "schema": 1,
+  "maaVersion": "6.21.3",
+  "sourceProfile": "Default",
+  "connection": {
+    "profile": "MuMuEmulator12",
+    "touchType": "minitouch",
+    "adbLiteEnabled": false
+  },
+  "sourceHashes": {
+    "core-dlls": "944685737d964374924bf3a5bf1794f11f0d75c9c1af0c1375afd4e62de06e25",
+    "resource-definitions": "249c4ae22b2dc0f34444ea1e999ae8c90e861c0fe23c54a4c9c230ca1003256f"
+  },
+  "tasks": [
+    {
+      "type": "StartUp",
+      "params": {
+        "client_type": "Official",
+        "start_game_enabled": true,
+        "account_name": ""
+      }
+    },
+    {
+      "type": "Recruit",
+      "params": {
+        "refresh": true,
+        "select": [
+          4
+        ],
+        "confirm": [
+          3,
+          4
+        ],
+        "times": 4,
+        "set_time": true,
+        "expedite": false,
+        "recruitment_time": {
+          "3": 540,
+          "4": 540,
+          "5": 540,
+          "6": 540
+        },
+        "report_to_penguin": false,
+        "report_to_yituliu": false,
+        "extra_tags_mode": 0,
+        "first_tags": [],
+        "preserve_tags": [
+          "支援机械"
+        ],
+        "force_refresh": true,
+        "level3_recruitment_permit_reserve": 0
+      }
+    },
+    {
+      "type": "Infrast",
+      "params": {
+        "mode": 20000,
+        "facility": [
+          "Mfg",
+          "Trade",
+          "Control",
+          "Power",
+          "Reception",
+          "Office",
+          "Dorm",
+          "Processing",
+          "Training"
+        ],
+        "drones": "Money",
+        "threshold": 0.3,
+        "replenish": true,
+        "dorm_notstationed_enabled": true,
+        "dorm_trust_enabled": false,
+        "reception_message_board": true,
+        "reception_clue_exchange": true,
+        "reception_send_clue": true,
+        "continue_training": false,
+        "fiammetta_recovery_enabled": false,
+        "use_pinus_sylvestris": false,
+        "use_perception_information": false,
+        "use_worldly_plight": false,
+        "use_abyssal_hunter": false
+      }
+    },
+    {
+      "type": "Fight",
+      "params": {
+        "stage": "1-7",
+        "times": 999,
+        "series": 6,
+        "medicine": 0,
+        "medicine_expire_days": 0,
+        "stone": 0,
+        "DrGrandet": false,
+        "report_to_penguin": false,
+        "report_to_yituliu": false,
+        "client_type": "Official"
+      }
+    },
+    {
+      "type": "Mall",
+      "params": {
+        "shopping": true,
+        "visit_friends": true,
+        "credit_fight": false,
+        "formation_index": 0,
+        "buy_first": [
+          "招聘许可"
+        ],
+        "blacklist": [
+          "碳",
+          "家具",
+          "加急许可",
+          "讯使",
+          "嘉维尔",
+          "坚雷"
+        ],
+        "force_shopping_if_credit_full": false,
+        "only_buy_discount": false,
+        "reserve_max_credit": false
+      }
+    },
+    {
+      "type": "Award",
+      "params": {
+        "award": true,
+        "mail": false,
+        "recruit": false,
+        "orundum": false,
+        "mining": false,
+        "specialaccess": false,
+        "signinevent": false
+      }
+    }
+  ]
+}
