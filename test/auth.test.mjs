@@ -71,3 +71,15 @@ test('直接意图识别覆盖自然表达，讨论、否定、计划和引用�
   assert.equal(parseIntentResponse('{"action":"start","command":"anything"}').action,'none');
   assert.equal(parseIntentResponse('{"action":').action,'none');
 });
+
+test('强制退出支持绑定目标和组合表达，拒绝否定、计划、其他进程及全局范围',async()=>{
+  const {directIntent}=await import('../lib/auth.mjs');
+  for(const text of ['强制退出模拟器和maa','强制退出模拟器和MAA','强制退出MAA和模拟器','请强制退出本次MAA','强制退出模拟器','大肥鱼，麻烦你帮我强制退出MAA和模拟器吧']) {
+    assert.equal(plausible('force',text,true),true,text);
+    assert.equal(directIntent(text,true),'force',text);
+  }
+  for(const text of ['不要强制退出MAA','明天强制退出MAA','强制退出全部模拟器','强制退出所有MAA','强制退出QQ','强制退出浏览器','强制退出模拟器1','强制退出QQ相关程序','你能强制退出MAA吗','强制退出MAA后重启电脑']) {
+    assert.equal(plausible('force',text,true),false,text);
+    assert.equal(directIntent(text,true),null,text);
+  }
+});

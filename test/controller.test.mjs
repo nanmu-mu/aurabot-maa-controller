@@ -215,3 +215,41 @@ print(json.dumps(worker.force(job,file.parent)))`;
   await reloaded.notify(async(_,text)=>{sent.push(text);return 1;},()=>true);
   assert.equal(sent.filter(text=>text.includes('本次任务已取消')).length,1);
 });
+
+test('已完成任务的明确强制请求进入清理，查询和其他会话不会触发',async()=>{
+  const f=fixture(),c=f.controller,id='00000000-0000-0000-0000-000000000000';
+  const dir=c.jobPath(id),state={id,mode:'mock',origin,status:'success',safeToRelease:true,finishedAt:123,tasks:{Fight:'completed'},stats:{battles:30},warnings:[]};
+  atomicJson(path.join(dir,'state.json'),state);
+  atomicJson(path.join(c.root,'active.json'),{id});
+  const calls=[];
+  c.helper=async(command,file)=>{calls.push({command,file});return {ok:true,message:'绑定模拟器已关闭；原任务结果保持不变'};};
+  assert.equal((await c.control('status',origin)).state.status,'success');
+  assert.equal(calls.length,0);
+  await assert.rejects(c.control('force',{...origin,userId:'other'}),/不属于/);
+  assert.equal(calls.length,0);
+  const result=await c.control('force',origin);
+  assert.equal(result.ok,true);
+  assert.deepEqual(calls,[{command:'force',file:path.join(dir,'job.json')}]);
+  assert.deepEqual(c.active(),state);
+});
+
+test('结果展示区分条件检测和错误，清理信息不覆盖原成功状态或统计',async()=>{
+  const {formatState}=await import('../lib/controller.mjs');
+  const state={status:'success',stats:{battles:30},subtaskDiagnostics:[{kind:'condition',label:'信用不足提示',count:6}],warnings:['基建子步骤报告错误：UnknownTask'],cleanup:{ok:true,at:1}};
+  const text=formatState(state);
+  assert.match(text,/预设执行完成/);
+  assert.match(text,/条件检测未命中/);
+  assert.match(text,/信用不足提示.*6/);
+  assert.match(text,/UnknownTask/);
+  assert.match(text,/绑定模拟器已关闭/);
+  assert.doesNotMatch(text,/统计不完整|任务已取消/);
+  assert.match(formatState({...state,cleanup:{ok:false,reason:'实例被占用',at:2}}),/关闭未确认.*实例被占用/);
+});
+
+test('售罄跳过单独展示，保留其他真实子步骤告警',async()=>{
+  const {formatState}=await import('../lib/controller.mjs');
+  const text=formatState({status:'success',subtaskDiagnostics:[{kind:'skipped',label:'优先购买商品已售罄（招聘许可）',count:1}],warnings:['其他购物错误']});
+  assert.match(text,/正常跳过：优先购买商品已售罄（招聘许可）/);
+  assert.match(text,/其他购物错误/);
+  assert.doesNotMatch(text,/信用子步骤报告错误：CreditShoppingTask/);
+});

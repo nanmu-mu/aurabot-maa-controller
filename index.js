@@ -1,6 +1,6 @@
 import { setupAdapter } from './lib/adapter.mjs';
 export default {
-  id:'maa-controller',name:'Aurabot MAA Controller',version:'0.1.7',api:1,
+  id:'maa-controller',name:'Aurabot MAA Controller',version:'0.1.9',api:1,
   description:'主人私聊控制固定 MAA 日常；默认停用，真实执行需要单独启用。',
   defaults:{enabled:false,pythonPath:'python',controllerConfig:''},
   settings:[

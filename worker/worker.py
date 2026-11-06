@@ -10,7 +10,8 @@ import sys
 import threading
 import time
 from policy import validate_job
-from state import Ledger, ORDER, read_json, write_json, milliseconds
+from contextlib import ExitStack
+from state import Ledger, ORDER, TERMINAL, read_json, write_json, milliseconds
 from win32 import Mutex, identity, terminate_exact, mutex_name, find_gui, in_job
 
 def record_process(job, directory):
@@ -186,6 +187,30 @@ def force(job, directory):
         try: return force_owned(job,directory)
         finally: marker.unlink(missing_ok=True)
 
+def close_finished(job, directory, state):
+    closed=False
+    reason=""
+    try:
+        with ExitStack() as locks:
+            locks.enter_context(Mutex(device_mutex_name(job,directory)))
+            if job["config"]["mode"]=="real":
+                locks.enter_context(Mutex(mutex_name(job["config"]["maaDir"])))
+            active=read_json(directory.parent.parent/"active.json",{})
+            if active.get("id")!=job["id"]:
+                raise RuntimeError("已有更新的插件任务，拒绝用旧任务关闭模拟器")
+            if job["config"]["mode"]=="mock": closed=True
+            else:
+                from emulator import force_close
+                closed=force_close(job["config"]["emulator"])
+            if not closed: reason="绑定模拟器关闭未确认"
+    except Exception as error:
+        reason=str(error)
+    # Closing the instance is a separate operation, never a new task outcome.
+    state["emulatorClosed"]=bool(closed)
+    state["cleanup"]={"ok":bool(closed),"at":milliseconds(),"reason":reason}
+    write_json(directory/"state.json",state)
+    return {"ok":bool(closed),"message":("绑定模拟器已关闭" if closed else "绑定模拟器关闭未确认："+reason)+"；原任务结果保持不变"}
+
 def force_owned(job, directory):
     proc=read_json(directory/"process.json")
     if not proc or proc.get("runId")!=job["id"] or proc.get("nonce")!=job["nonce"]:
@@ -203,6 +228,8 @@ def force_owned(job, directory):
     if was_alive:
         terminate_exact(expected,own["path"])
     s=read_json(directory/"state.json")
+    if s.get("status") in TERMINAL and s.get("safeToRelease"):
+        return close_finished(job,directory,s)
     if not was_alive:
         s.setdefault("warnings",[]).append("原执行器已不存在，未终止任何替代进程；原任务结果仍按已有证据记录")
     closed=False

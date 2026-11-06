@@ -114,3 +114,27 @@ test('明确自然语言请求直接生成票据，不受分类模型格式或�
   assert.equal((await h.tools[0](h.where).execute({requestId:h.cap()})).code,'accepted');
   await terminal(f.controller);
 });
+
+test('fake host：完成后明确强制退出绑定模拟器，保留任务结果并且不重复通知',async t=>{
+  const f=fixture(),h=host(f);t.after(()=>cleanActive(f.controller));
+  h.api.ask=async()=>{throw Error('明确请求不应依赖模型分类');};
+  await h.hooks.message(message('帮我把明日方舟日常清一下'));
+  await h.tools[0](h.where).execute({requestId:h.cap()});
+  const before=await terminal(f.controller);
+  await h.timers[0]();
+  const noticeCount=h.sent.length;
+  await h.hooks.message(message('强制退出模拟器','2'));
+  const requestId=h.cap();
+  assert.ok(requestId,'结束后明确关闭请求仍应生成票据');
+  const result=await h.tools[0](h.where).execute({requestId});
+  assert.equal(result.ok,true);
+  assert.match(result.message,/绑定模拟器已关闭.*原任务结果保持不变/);
+  const after=f.controller.active();
+  for(const key of ['id','status','finishedAt','tasks','stats','warnings']) assert.deepEqual(after[key],before[key],key);
+  assert.equal(after.cleanup.ok,true);
+  assert.equal(after.emulatorClosed,true);
+  assert.equal((await h.tools[0](h.where).execute({requestId})).ok,false);
+  await h.timers[0]();
+  assert.equal(h.sent.length,noticeCount,'清理不能再发开始、完成或取消通知');
+  h.dispose.forEach(fn=>fn());
+});

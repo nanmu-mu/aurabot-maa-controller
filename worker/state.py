@@ -3,9 +3,19 @@ import os
 import time
 import uuid
 from pathlib import Path
+from diagnostics import priority_sold_out_evidence
 
 ORDER = ["StartUp","Recruit","Infrast","Fight","Mall","Award"]
 TERMINAL = {"success","partial","failed","cancelled","unknown"}
+TASK_NAMES = dict(zip(ORDER,["唤醒","公招","基建","作战","信用","领奖"]))
+# Audited MaaCore 6.21.3 uses these ProcessTask results as conditional probes.
+CONDITION_CHECKS = {
+    ("Infrast","ShamareThumbnail"):"巫恋加速条件",
+    ("Infrast","UnlockClues"):"线索交流开启条件",
+    ("Infrast","EndOfClueExchange"):"线索交流结束弹窗",
+    ("Infrast","InfrastClueSelfFull"):"线索已满提示",
+    ("Mall","CreditShop-NoMoney"):"信用不足提示",
+}
 
 def read_json(file, default=None):
     try: return json.loads(Path(file).read_text(encoding="utf-8-sig"))
@@ -27,6 +37,15 @@ def write_json(file, value):
 
 def milliseconds(): return int(time.time()*1000)
 
+def subtask_warning(record):
+    kind=record.get("kind")
+    if kind not in ("error","stopped"): return None
+    first=record.get("first",[])
+    node=", ".join(str(x) for x in first) if isinstance(first,list) and first else str(record.get("subtask") or "未知节点")
+    what=" / "+str(record["what"]) if record.get("what") else ""
+    chain=record.get("taskchain")
+    return TASK_NAMES.get(chain,chain or "未知任务")+"子步骤报告"+("错误" if kind=="error" else "停止")+"："+node+what
+
 class Ledger:
     def __init__(self, job, directory):
         self.job, self.directory = job, Path(directory)
@@ -45,6 +64,37 @@ class Ledger:
     def warning(self, text):
         if text not in self.value["warnings"]:
             self.value["warnings"] = (self.value["warnings"]+[text])[-10:]
+    def subtask_event(self, code, chain, details):
+        first = details.get("first",[])
+        label = CONDITION_CHECKS.get((chain,first[0])) if isinstance(first,list) and len(first)==1 and isinstance(first[0],str) else None
+        condition = (code==20000 and label and details.get("class")=="asst::ProcessTask"
+                     and details.get("subtask")=="ProcessTask" and not details.get("what")
+                     and details.get("details")=={} and not details.get("pre_task"))
+        kind = "condition" if condition else ("requested-stop" if code==20004 and self.requested_stop else ("stopped" if code==20004 else "error"))
+        record = {"code":code,"kind":kind,"taskchain":chain,"class":details.get("class"),
+                  "subtask":details.get("subtask"),"first":first,"what":details.get("what"),
+                  "details":details.get("details",{}),"label":label if condition else None}
+        records = self.value.setdefault("subtaskDiagnostics",[])
+        previous = next((item for item in records if all(item.get(k)==v for k,v in record.items())),None)
+        now = milliseconds()
+        if previous:
+            previous.update(count=previous["count"]+1,lastAt=now)
+        else:
+            records.append({**record,"count":1,"firstAt":now,"lastAt":now})
+            del records[:-50]
+        warning=subtask_warning(record)
+        if warning: self.warning(warning)
+    def reconcile_subtask_diagnostics(self):
+        records=self.value.get("subtaskDiagnostics",[])
+        if len(records)>=50: return  # A truncated history cannot prove all causes of a warning.
+        for record in records:
+            evidence=priority_sold_out_evidence(self.job,self.directory,record)
+            if not evidence: continue
+            warning=subtask_warning(record)
+            items="、".join(dict.fromkeys(evidence["items"]))
+            record.update(kind="skipped",label="优先购买商品已售罄（"+items+"）",evidence=evidence)
+            if not any(subtask_warning(other)==warning for other in records):
+                self.value["warnings"]=[text for text in self.value["warnings"] if text!=warning]
     def event(self, code, details):
         chain = self.task_ids.get(details.get("taskid")) or details.get("taskchain")
         if code in (0,1):
@@ -67,7 +117,7 @@ class Ledger:
             if previous != "error":
                 self.value["tasks"][chain] = {10000:"error",10002:"completed",10004:"stopped"}[code]
         elif code in (20000,20004):
-            self.warning("MAA 子步骤出现错误或停止，详见本地诊断")
+            self.subtask_event(code,chain,details)
         if details.get("what") == "StageDrops":
             data = details.get("details",{})
             key = json.dumps(data,sort_keys=True,ensure_ascii=False)
@@ -116,6 +166,7 @@ class Ledger:
             status = "success"
         else:
             status = "unknown"
+        if status=="success": self.reconcile_subtask_diagnostics()
         self.value.update(status=status,finishedAt=milliseconds(),safeToRelease=(status!="unknown"))
         if status == "unknown":
             self.value["reason"] = "缺少完整终态证据，保留任务锁，禁止自动重跑"

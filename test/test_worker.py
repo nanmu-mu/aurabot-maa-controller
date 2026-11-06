@@ -138,3 +138,148 @@ class ForceCloseRegressionTests(unittest.TestCase):
             self.assertTrue(force_close(c))
             kill.assert_called_once_with(target,c["headlessExecutable"])
             command.assert_called_once()
+
+
+class SubtaskDiagnosticsTests(unittest.TestCase):
+    def probe(self, first, chain="Infrast"):
+        return {"class":"asst::ProcessTask","subtask":"ProcessTask","taskchain":chain,
+                "first":[first],"pre_task":"","details":{}}
+
+    def test_recorded_condition_checks_do_not_become_generic_errors(self):
+        with tempfile.TemporaryDirectory() as d:
+            ledger=Ledger(job(),d)
+            probes=[("ShamareThumbnail","Infrast",1),("UnlockClues","Infrast",2),
+                    ("EndOfClueExchange","Infrast",2),("InfrastClueSelfFull","Infrast",1),
+                    ("CreditShop-NoMoney","Mall",6)]
+            for first,chain,count in probes:
+                for _ in range(count): ledger.event(20000,self.probe(first,chain))
+            for chain in ORDER: ledger.event(10002,{"taskchain":chain})
+            ledger.event(3,{})
+            ledger.finish(True)
+            self.assertEqual(ledger.value["status"],"success")
+            self.assertEqual(ledger.value["warnings"],[])
+            diagnostics=ledger.value["subtaskDiagnostics"]
+            self.assertEqual(len(diagnostics),5)
+            self.assertEqual(sum(item["count"] for item in diagnostics),12)
+            self.assertTrue(all(item["kind"]=="condition" for item in diagnostics))
+            self.assertEqual(read_json(Path(d)/"state.json")["subtaskDiagnostics"],diagnostics)
+
+    def test_unknown_or_context_changed_errors_remain_specific_warnings(self):
+        for event in [self.probe("UnknownNode"),
+                      self.probe("CreditShop-NoMoney","Fight"),
+                      {**self.probe("UnlockClues"),"what":"UnknownTask","details":{"tasks":["MissingTask"]}},
+                      {**self.probe("UnlockClues"),"class":"OtherTask"}]:
+            with self.subTest(event=event),tempfile.TemporaryDirectory() as d:
+                ledger=Ledger(job(),d)
+                ledger.event(20000,event)
+                self.assertEqual(ledger.value["subtaskDiagnostics"][0]["kind"],"error")
+                self.assertIn(event["first"][0],ledger.value["warnings"][0])
+                self.assertNotIn("详见本地诊断",ledger.value["warnings"][0])
+                if event.get("what"): self.assertIn("UnknownTask",ledger.value["warnings"][0])
+                self.assertEqual(ledger.value["subtaskDiagnostics"][0]["details"],event["details"])
+
+    def test_requested_and_unrequested_subtask_stops_are_distinct(self):
+        for requested in (False,True):
+            with tempfile.TemporaryDirectory() as d:
+                ledger=Ledger(job(),d)
+                if requested: ledger.stop_requested()
+                ledger.event(20004,self.probe("FightBegin","Fight"))
+                self.assertEqual(ledger.value["subtaskDiagnostics"][0]["kind"],"requested-stop" if requested else "stopped")
+                self.assertEqual(bool(ledger.value["warnings"]),not requested)
+
+class FinishedCleanupTests(unittest.TestCase):
+    def finished(self, status="success"):
+        from state import write_json
+        temporary=tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        j=job();j["config"]["mode"]="real"
+        directory=Path(temporary.name)/"runtime"/"runs"/j["id"]
+        state={"id":j["id"],"status":status,"safeToRelease":True,"finishedAt":123,
+               "startedAt":1,"tasks":dict.fromkeys(ORDER,"completed"),"warnings":["原有记录"],
+               "stats":{"battles":30,"drops":{"rock":{"name":"固源岩","quantity":40}}},
+               "reason":"原任务说明"}
+        write_json(directory/"state.json",state)
+        write_json(directory/"process.json",{"runId":j["id"],"nonce":j["nonce"],"pid":999,
+                                            "created":"old","path":"python.exe"})
+        write_json(directory.parent.parent/"active.json",{"id":j["id"]})
+        return j,directory,copy.deepcopy(state)
+
+    def mocks(self):
+        from contextlib import ExitStack,nullcontext
+        stack=ExitStack()
+        stack.enter_context(patch("worker.identity",side_effect=lambda pid: {"pid":pid,"created":"new","path":"python.exe"}))
+        kill=stack.enter_context(patch("worker.terminate_exact"))
+        close=stack.enter_context(patch("emulator.force_close",return_value=True))
+        mutex=stack.enter_context(patch("worker.Mutex",side_effect=lambda _: nullcontext()))
+        return stack,kill,close,mutex
+
+    def test_cleanup_preserves_original_results_times_stats_and_warnings(self):
+        from worker import force_owned
+        for status in ("success","partial","failed","cancelled"):
+            with self.subTest(status=status):
+                j,directory,before=self.finished(status)
+                stack,kill,close,_=self.mocks()
+                with stack:
+                    result=force_owned(j,directory)
+                after=read_json(directory/"state.json")
+                self.assertTrue(result["ok"])
+                self.assertTrue(after["cleanup"]["ok"])
+                self.assertTrue(after["emulatorClosed"])
+                for key,value in before.items(): self.assertEqual(after[key],value,key)
+                kill.assert_not_called()  # Reused PID is never terminated.
+                close.assert_called_once_with(j["config"]["emulator"])
+
+    def test_cleanup_failure_does_not_rewrite_the_original_result(self):
+        from worker import force_owned
+        j,directory,before=self.finished()
+        stack,kill,close,_=self.mocks()
+        with stack:
+            close.side_effect=RuntimeError("关闭未确认")
+            result=force_owned(j,directory)
+        after=read_json(directory/"state.json")
+        self.assertFalse(result["ok"])
+        self.assertFalse(after["cleanup"]["ok"])
+        self.assertIn("关闭未确认",after["cleanup"]["reason"])
+        for key,value in before.items(): self.assertEqual(after[key],value,key)
+        kill.assert_not_called()
+
+    def test_busy_device_or_maa_never_closes_another_task(self):
+        from contextlib import nullcontext
+        from worker import force_owned
+        for fail_at in (1,2):
+            with self.subTest(fail_at=fail_at):
+                j,directory,before=self.finished()
+                stack,kill,close,mutex=self.mocks()
+                def lock(name):
+                    if mutex.call_count==fail_at: raise RuntimeError("资源被占用")
+                    return nullcontext()
+                with stack:
+                    mutex.side_effect=lock
+                    result=force_owned(j,directory)
+                self.assertFalse(result["ok"])
+                self.assertEqual(read_json(directory/"state.json")["status"],before["status"])
+                close.assert_not_called()
+                kill.assert_not_called()
+
+    def test_superseded_job_cannot_close_the_current_instance(self):
+        from state import write_json
+        from worker import force_owned
+        j,directory,_=self.finished()
+        write_json(directory.parent.parent/"active.json",{"id":"newer-job"})
+        stack,kill,close,_=self.mocks()
+        with stack: result=force_owned(j,directory)
+        self.assertFalse(result["ok"])
+        close.assert_not_called()
+        kill.assert_not_called()
+
+    def test_missing_ownership_proof_is_still_rejected(self):
+        from state import write_json
+        from worker import force_owned
+        j,directory,_=self.finished()
+        proc=read_json(directory/"process.json");proc["nonce"]="wrong"
+        write_json(directory/"process.json",proc)
+        stack,kill,close,_=self.mocks()
+        with stack:
+            with self.assertRaisesRegex(RuntimeError,"归属"): force_owned(j,directory)
+        close.assert_not_called()
+        kill.assert_not_called()

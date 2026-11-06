@@ -25,6 +25,7 @@
   "lib/storage.mjs",
   "worker/adb_guard.py",
   "worker/core.py",
+  "worker/diagnostics.py",
   "worker/emulator.py",
   "worker/policy.py",
   "worker/state.py",
@@ -42,6 +43,7 @@
   "test/helpers.mjs",
   "test/preset.test.mjs",
   "test/test_adb_guard.py",
+  "test/test_diagnostics.py",
   "test/test_state_io.py",
   "test/test_worker.py"
 ]
