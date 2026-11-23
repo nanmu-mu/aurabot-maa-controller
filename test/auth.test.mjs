@@ -83,3 +83,32 @@ test('强制退出支持绑定目标和组合表达，拒绝否定、计划、�
     assert.equal(directIntent(text,true),null,text);
   }
 });
+
+test('强制退出带进程后缀及主人后续省略表达，仍限定当前任务',async()=>{
+  const {directIntent}=await import('../lib/auth.mjs');
+  const explicit=[
+    '强制退出MAA和模拟器进程','强制退出模拟器和MAA进程',
+    '那就先强制退出模拟器和maa进程','大肥鱼，麻烦你帮我强制退出MAA和模拟器进程吧'
+  ];
+  for(const text of explicit) {
+    assert.equal(plausible('force',text,true),true,text);
+    assert.equal(directIntent(text,true),'force',text);
+    assert.equal(plausible('start',text,true),false,text);
+    assert.equal(plausible('start',text,false),false,text);
+  }
+  for(const text of ['强制退出','授权强制退出','强制退出本次进程']) {
+    assert.equal(plausible('force',text,true),true,text);
+    assert.equal(directIntent(text,true),'force',text);
+    assert.equal(plausible('force',text,false),false,text);
+    assert.equal(directIntent(text,false),null,text);
+  }
+  for(const text of [
+    '不要强制退出MAA和模拟器进程','明天强制退出MAA和模拟器进程',
+    '强制退出所有MAA和模拟器进程','强制退出MAA和QQ进程',
+    '强制退出模拟器1进程','你能强制退出MAA和模拟器进程吗',
+    '强制退出MAA和模拟器进程后重启电脑','授权强制退出QQ'
+  ]) {
+    assert.equal(plausible('force',text,true),false,text);
+    assert.equal(directIntent(text,true),null,text);
+  }
+});

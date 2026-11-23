@@ -138,3 +138,55 @@ test('fake host：完成后明确强制退出绑定模拟器，保留任务结�
   assert.equal(h.sent.length,noticeCount,'清理不能再发开始、完成或取消通知');
   h.dispose.forEach(fn=>fn());
 });
+
+for(const text of [
+  '强制退出MAA和模拟器进程','强制退出模拟器和MAA进程',
+  '那就先强制退出模拟器和maa进程','强制退出','授权强制退出','强制退出本次进程'
+]) {
+  test('fake host：实际问题原话生成单次票据并保留完成结果 '+text,async t=>{
+    const f=fixture(),h=host(f);t.after(()=>cleanActive(f.controller));
+    h.api.ask=async()=>{throw Error('明确请求不应依赖模型分类');};
+    await h.hooks.message(message('帮我把明日方舟日常清一下'));
+    await h.tools[0](h.where).execute({requestId:h.cap()});
+    const before=await terminal(f.controller);
+    await h.timers[0]();
+    const noticeCount=h.sent.length;
+    await h.hooks.message(message(text,'2'));
+    const requestId=h.cap();
+    assert.ok(requestId,'本次主人请求应生成票据');
+    assert.equal((await h.tools[0](h.where).execute({requestId})).ok,true);
+    const after=f.controller.active();
+    for(const key of ['id','status','finishedAt','tasks','stats','warnings']) assert.deepEqual(after[key],before[key],key);
+    assert.equal(after.cleanup.ok,true);
+    assert.equal(after.emulatorClosed,true);
+    assert.equal((await h.tools[0](h.where).execute({requestId})).ok,false);
+    await h.timers[0]();
+    assert.equal(h.sent.length,noticeCount);
+    h.dispose.forEach(fn=>fn());
+  });
+}
+test('fake host：退出进程的新表达仍拒绝非主人、群聊、引用、转发及过期来源',async t=>{
+  const f=fixture(),h=host(f);t.after(()=>cleanActive(f.controller));
+  h.api.ask=async()=>{throw Error('明确请求不应依赖模型分类');};
+  await h.hooks.message(message('帮我把明日方舟日常清一下'));
+  await h.tools[0](h.where).execute({requestId:h.cap()});
+  const before=await terminal(f.controller);
+  const mutations=[
+    m=>{m.userId='2';m.raw.user_id=2;},
+    m=>{m.kind='group';m.raw.message_type='group';},
+    m=>{m.replyId='quoted';},
+    m=>{m.raw.message=[{type:'forward',data:{id:'example'}}];},
+    m=>{m.raw.simulated=true;},
+    m=>{m.raw.time-=180;},
+    m=>{m.raw.message[0].data.text='晚安';}
+  ];
+  for(const [index,mutate] of mutations.entries()) {
+    const msg=message('强制退出MAA和模拟器进程',String(index+2));
+    mutate(msg);
+    await h.hooks.message(msg);
+    assert.equal(h.cap(),undefined);
+    assert.equal(f.controller.active().cleanup,undefined);
+    assert.equal(f.controller.active().id,before.id);
+  }
+  h.dispose.forEach(fn=>fn());
+});
